@@ -26,10 +26,10 @@ def total_similarity(data: bytes):
 
 
 if __name__ == '__main__':
-    test_day_1_data = get_file_data('2024/python/inputs/day1_test', split_lines=False)
-    day_1_data = get_file_data('2024/python/inputs/day1', split_lines=False)
+    test_data = get_file_data('2024/python/inputs/day1_test', split_lines=False)
+    real_data = get_file_data('2024/python/inputs/day1', split_lines=False)
 
-    assert total_distance(test_day_1_data) == 11
-    assert total_similarity(test_day_1_data) == 31
-    print(f'Part 1 answer: {total_distance(day_1_data)}')  # 1222801
-    print(f'Part 2 answer: {total_similarity(day_1_data)}')  # 22545250
+    assert total_distance(test_data) == 11
+    assert total_similarity(test_data) == 31
+    print(f'Part 1 answer: {total_distance(real_data)}')  # 1222801
+    print(f'Part 2 answer: {total_similarity(real_data)}')  # 22545250
