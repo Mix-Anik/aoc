@@ -63,11 +63,7 @@ def part2(data: List[str]):
 
         _grid = {**grid, new_pos: '#'}
         if new_pos not in visited and has_loops(_grid, cur_pos, direction, len(data[0]), len(data)):
-            # _grid[new_pos] = 'O'
-            # _grid[cur_pos] = direction
-            # print_grid(_grid, len(data))
             loop_positions += 1
-        # grid[cur_pos] = '*'
 
         visited.add(cur_pos)
         cur_pos = new_pos
