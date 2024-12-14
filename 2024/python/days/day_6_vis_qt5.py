@@ -1,19 +1,20 @@
 import sys
-from time import sleep
 
-from PyQt5.QtWidgets import QApplication, QGraphicsView, QGraphicsScene
-from PyQt5.QtGui import QBrush, QColor, QPainter
+from PyQt5.QtWidgets import QApplication, QGraphicsView, QGraphicsScene, QGraphicsTextItem
+from PyQt5.QtGui import QBrush, QColor, QPen, QFont
 from PyQt5.QtCore import QTimer, QRectF
+from PyQt5.QtCore import Qt
 
 from helpers import get_file_data
 
 PIXEL_SIZE = 6
 COLORS = {
-    "DEFAULT": QColor("#555"),
+    "BG": QColor("#222"),
+    "DEFAULT": QColor("#111"),
     "GUARD": QColor("#f90"),
-    "WALL": QColor("#f55"),
+    "WALL": QColor("#a55"),
     "VISITED": QColor("#6f9"),
-    "LOOP": QColor("#0ff")
+    "LOOP": QColor("#0ee")
 }
 
 
@@ -56,7 +57,7 @@ def simulate(grid: dict, cur_pos, direction='^') -> tuple[list, dict]:
         _grid = {**grid, new_pos: '#'}
         loop_path = _has_loops(_grid, cur_pos, direction)
         if new_pos not in visited and loop_path:
-            loop_paths[(cur_pos, direction)] = loop_path
+            loop_paths[(cur_pos, direction)] = [x for x in loop_path if x not in visited]
 
         visited.add(cur_pos)
         cur_pos = new_pos
@@ -68,13 +69,22 @@ class GridAnimation(QGraphicsView):
     def __init__(self, data: list):
         super().__init__()
         self.scene = QGraphicsScene()
+        self.scene.setBackgroundBrush(QBrush(COLORS['BG']))
         self.setScene(self.scene)
         self.setWindowTitle("AoC 2024 Day6 Part2 Visualizer")
-        self.setRenderHint(QPainter.Antialiasing)
+        self.pen = QPen(COLORS['BG'])
         self.MW, self.MH = len(data[0]), len(data)
-        self.setFixedSize(self.MW * PIXEL_SIZE + 4, self.MH * PIXEL_SIZE + 4)
-        self.pixels = {}
+        self.setFixedSize(self.MW * PIXEL_SIZE + 4, self.MH * PIXEL_SIZE + 4 + 40)
+        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
+        self.cycles_count = 0
+        self.text_item = QGraphicsTextItem('Cycles Found: 0')
+        self.text_item.setDefaultTextColor(COLORS['LOOP'])
+        self.text_item.setFont(QFont("Arial", 16))
+        self.text_item.setPos((self.MW * PIXEL_SIZE + 4) / 2 - 100, self.MH * PIXEL_SIZE + 4)
+        self.scene.addItem(self.text_item)
+
+        self.pixels = {}
         self.grid = {}
         for y in range(self.MH):
             for x in range(self.MW):
@@ -88,22 +98,30 @@ class GridAnimation(QGraphicsView):
         self.path_idx = 0
         self.loop_drawn = False
         self.visited = set()
+        self.loops_visited = set()
+        self.fading_pixels = {}
+        self.drawn_loops = {}
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.tick)
         self.draw_initial_grid()
 
+        self.loops_timer = QTimer()
+        self.loops_timer.timeout.connect(self.draw_loops)
+        self.loops_timer.start(20)
+
+        self.fading_timer = QTimer()
+        self.fading_timer.timeout.connect(self.update_fading_pixels)
+        self.fading_timer.start(20)
+
     def draw_initial_grid(self):
-        for y in range(self.MH):
-            for x in range(self.MW):
+        for y in range(0, self.MH):
+            for x in range(0, self.MW):
                 char = self.grid[(x, y)]
                 color = COLORS["WALL"] if char == '#' else COLORS["DEFAULT"]
-                self.add_pixel(x, y, color)
-
-    def add_pixel(self, x, y, color):
-        rect = QRectF(x * PIXEL_SIZE, y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE)
-        brush = QBrush(color)
-        self.pixels[(x, y)] = self.scene.addRect(rect, brush=brush)
+                rect = QRectF(x * PIXEL_SIZE, y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE)
+                brush = QBrush(color)
+                self.pixels[(x, y)] = self.scene.addRect(rect, brush=brush, pen=self.pen)
 
     def update_pixel(self, x, y, color):
         self.pixels[(x, y)].setBrush(QBrush(color))
@@ -115,28 +133,53 @@ class GridAnimation(QGraphicsView):
             return
 
         prev_pos, direction = self.main_path[self.path_idx - 1]
-        self.update_pixel(prev_pos[0], prev_pos[1], COLORS["VISITED"])
-        self.visited.add(prev_pos)
-
-        if self.loop_drawn:
-            self.loop_drawn = False
-            for x, y in self.loop_paths[(prev_pos, direction)]:
-                if (x, y, direction) in self.loop_paths:
-                    color = COLORS["LOOP"]
-                elif (x, y) in self.visited:
-                    color = COLORS["VISITED"]
-                else:
-                    color = COLORS["DEFAULT"]
-                self.update_pixel(x, y, color)
+        if prev_pos not in self.visited:
+            self.visited.add(prev_pos)
 
         cur_pos, direction = self.main_path[self.path_idx]
-        self.update_pixel(cur_pos[0], cur_pos[1], COLORS["GUARD"])
+        if cur_pos not in self.visited and cur_pos not in self.loops_visited:
+            self.update_pixel(cur_pos[0], cur_pos[1], COLORS["VISITED"])
+            self.fading_pixels[cur_pos] = (COLORS["VISITED"], 10)
 
         if (cur_pos, direction) in self.loop_paths:
-            self.loop_drawn = True
-            for x, y in self.loop_paths[(cur_pos, direction)]:
-                if (x, y) not in self.visited:  # just optimization to reduce amount of updated pixels
-                    self.update_pixel(x, y, COLORS["LOOP"])
+            self.drawn_loops[(cur_pos, direction)] = (self.loop_paths[(cur_pos, direction)], COLORS["LOOP"], 4)
+            self.loops_visited.add(cur_pos)
+
+            # if cur_pos in self.fading_pixels:
+            #     del self.fading_pixels[cur_pos]
+            #
+            # self.update_pixel(cur_pos[0], cur_pos[1], COLORS["LOOP"])
+            self.cycles_count += 1
+            self.text_item.setPlainText(f'Cycles Found: {self.cycles_count}')
+
+    def update_fading_pixels(self):
+        to_remove = []
+        for (x, y), (color, steps) in self.fading_pixels.items():
+            if steps <= 0:
+                to_remove.append((x, y))
+                self.visited.add((x, y))
+                continue
+            faded_color = color.darker(factor=115)
+            self.pixels[(x, y)].setBrush(QBrush(faded_color))
+            self.fading_pixels[(x, y)] = (faded_color, steps - 1)
+        for key in to_remove:
+            del self.fading_pixels[key]
+
+    def draw_loops(self):
+        to_remove = []
+        for key, (path, color, steps) in self.drawn_loops.items():
+            if steps <= 0:
+                to_remove.append(key)
+                continue
+
+            faded_color = COLORS['DEFAULT'] if steps == 1 else color.darker(factor=115)
+            for x, y in path:
+                if (x, y) in self.loops_visited:
+                    continue
+                self.pixels[(x, y)].setBrush(QBrush(faded_color))
+            self.drawn_loops[key] = (path, faded_color, steps - 1)
+        for key in to_remove:
+            del self.drawn_loops[key]
 
 
 if __name__ == "__main__":
